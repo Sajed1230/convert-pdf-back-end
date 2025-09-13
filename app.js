@@ -2,7 +2,10 @@ const express = require("express");
 const cors = require("cors");
 const multer = require("multer");
 const nodemailer = require("nodemailer");
-const { PDFDocument, rgb, StandardFonts } = require("pdf-lib"); 
+const { PDFDocument, rgb, StandardFonts } = require("pdf-lib");
+const officeToPdf = require("office-to-pdf"); // new library
+const fs = require("fs");
+const path = require("path");
 require("dotenv").config();
 
 const app = express();
@@ -23,33 +26,27 @@ app.post("/convert-pdf", upload.array("files"), async (req, res) => {
     const font = await pdfDoc.embedFont(StandardFonts.Helvetica);
 
     for (const file of files) {
-      const page = pdfDoc.addPage([595, 842]); // A4 size
-      const { width, height } = page.getSize();
+      const ext = path.extname(file.originalname).toLowerCase();
 
       if (file.mimetype.startsWith("text/")) {
+        // TXT or Markdown
+        const page = pdfDoc.addPage([595, 842]);
+        const { width, height } = page.getSize();
         const text = file.buffer.toString("utf8");
         const lines = text.split("\n");
         let y = height - 50;
         for (const line of lines) {
-          page.drawText(line, {
-            x: 50,
-            y,
-            size: 14,
-            font,
-            color: rgb(0, 0, 0),
-          });
+          page.drawText(line, { x: 50, y, size: 14, font, color: rgb(0, 0, 0) });
           y -= 20;
-          if (y < 50) { // add new page if text exceeds
-            y = height - 50;
-          }
+          if (y < 50) y = height - 50; // new page if needed
         }
       } else if (file.mimetype.startsWith("image/")) {
+        // Images
+        const page = pdfDoc.addPage([595, 842]);
+        const { width, height } = page.getSize();
         let img;
-        if (file.mimetype === "image/png") {
-          img = await pdfDoc.embedPng(file.buffer);
-        } else {
-          img = await pdfDoc.embedJpg(file.buffer);
-        }
+        if (file.mimetype === "image/png") img = await pdfDoc.embedPng(file.buffer);
+        else img = await pdfDoc.embedJpg(file.buffer);
         const imgDims = img.scaleToFit(width - 100, height - 100);
         page.drawImage(img, {
           x: (width - imgDims.width) / 2,
@@ -57,18 +54,22 @@ app.post("/convert-pdf", upload.array("files"), async (req, res) => {
           width: imgDims.width,
           height: imgDims.height,
         });
+      } else if ([".docx", ".pptx", ".xlsx"].includes(ext)) {
+        // Office files → convert to PDF
+        const officePdfBuffer = await officeToPdf(file.buffer);
+        const officePdfDoc = await PDFDocument.load(officePdfBuffer);
+        const copiedPages = await pdfDoc.copyPages(officePdfDoc, officePdfDoc.getPageIndices());
+        copiedPages.forEach(page => pdfDoc.addPage(page));
       }
     }
 
-    const pdfBytes = await pdfDoc.save();
-
+    const finalPdf = await pdfDoc.save();
     res.writeHead(200, {
       "Content-Type": "application/pdf",
       "Content-Disposition": "inline; filename=converted.pdf",
-      "Content-Length": pdfBytes.length,
+      "Content-Length": finalPdf.length,
     });
-    res.end(Buffer.from(pdfBytes));
-
+    res.end(Buffer.from(finalPdf));
   } catch (err) {
     console.error("PDF conversion failed:", err);
     res.status(500).send("PDF conversion failed");
@@ -86,37 +87,21 @@ app.post("/contact", async (req, res) => {
   try {
     const transporter = nodemailer.createTransport({
       service: "gmail",
-      auth: {
-        user: process.env.EMAIL_USER,
-        pass: process.env.EMAIL_PASS,
-      },
+      auth: { user: process.env.EMAIL_USER, pass: process.env.EMAIL_PASS },
     });
 
     const htmlMessage = `
       <div style="
-        font-family: 'Arial', sans-serif; 
-        max-width: 600px; 
-        margin: auto; 
-        padding: 20px; 
-        border-radius: 12px; 
-        background: #f4f7f8;
-        border: 1px solid #e0e0e0;
+        font-family: Arial, sans-serif; max-width: 600px; margin: auto;
+        padding: 20px; border-radius: 12px; background: #f4f7f8; border: 1px solid #e0e0e0;
       ">
         <h2 style="color: #05b3a4; text-align: center;">📩 New Contact Message</h2>
         <p><strong>Name:</strong> <span style="color: #049387;">${name}</span></p>
         <p><strong>Email:</strong> <span style="color: #049387;">${email}</span></p>
         <p><strong>Message:</strong></p>
-        <p style="
-          background: #e0f7f5; 
-          padding: 15px; 
-          border-radius: 8px; 
-          font-size: 15px; 
-          line-height: 1.5;
-        ">${message}</p>
-        <hr style="border: 0; border-top: 1px solid #ccc; margin: 20px 0;">
-        <p style="text-align: center; color: #777; font-size: 12px;">
-          — Sent via <span style="color: #05b3a4; font-weight: bold;">Conver to pdf</span>
-        </p>
+        <p style="background: #e0f7f5; padding: 15px; border-radius: 8px; font-size: 15px; line-height: 1.5;">${message}</p>
+        <hr style="border:0;border-top:1px solid #ccc;margin:20px 0;">
+        <p style="text-align:center;color:#777;font-size:12px;">— Sent via <span style="color:#05b3a4;font-weight:bold;">Convert to PDF</span></p>
       </div>
     `;
 
