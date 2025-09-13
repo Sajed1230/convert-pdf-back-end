@@ -1,21 +1,29 @@
-# Use Node.js slim image
+# ================= Base image =================
 FROM node:22-slim
 
-# Install LibreOffice for office-to-pdf
-RUN apt-get update && apt-get install -y libreoffice && rm -rf /var/lib/apt/lists/*
+# ================= Set working directory =================
+WORKDIR /app
 
-# Set working directory
-WORKDIR /usr/src/app
+# ================= Install system dependencies =================
+RUN apt-get update && \
+    apt-get install -y \
+    libreoffice \
+    curl \
+    wget \
+    unzip \
+    && rm -rf /var/lib/apt/lists/*
 
-# Copy package.json and install dependencies
+# ================= Copy package.json and package-lock.json =================
 COPY package*.json ./
+
+# ================= Install Node.js dependencies =================
 RUN npm install
 
-# Copy the rest of your app
+# ================= Copy backend code =================
 COPY . .
 
-# Expose port
+# ================= Expose port =================
 EXPOSE 3001
 
-# Start the app
-CMD ["node", "app.js"]
+# ================= Start the app =================
+CMD ["npm", "start"]
