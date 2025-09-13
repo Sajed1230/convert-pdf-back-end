@@ -19,7 +19,7 @@ app.post("/convert-pdf", upload.array("files"), async (req, res) => {
   try {
     const files = req.files;
     if (!files || files.length === 0) {
-      return res.status(400).send("No files uploaded");
+      return res.status(400).send("No files uploaded try again");
     }
 
     const pdfDoc = await PDFDocument.create();
